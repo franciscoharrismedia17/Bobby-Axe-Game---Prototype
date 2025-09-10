@@ -1,6 +1,6 @@
-// ===== Bobby Axe Prototype - v0.7.5 =====
-// p5.js
+// ===== Bobby Axe - Full Sketch with Main Menu (v0.9) =====
 
+// ---------- CANVAS ----------
 let canvasWidth = 1920, canvasHeight = 1080;
 
 // ---------- ART ----------
@@ -8,6 +8,32 @@ let IMG_BG, IMG_MG, IMG_FG;
 let IMG_BOBBY_REST, IMG_BOBBY_RISE, IMG_BOBBY_THROW;
 let IMG_AXE, IMG_SCORE;
 let IMG_WIND;
+
+// ---------- MAIN MENU ASSETS ----------
+let IMG_COVER, IMG_BTN_START, IMG_BTN_START_PRESSED;
+
+// ---------- AUDIO ----------
+let SND_AXE_THROW, SND_BUTTON, SND_GRAB_AXE, SND_LEVEL_COMPLETE;
+let SND_MAIN_MUSIC, SND_POINTS_LOST, SND_TARGET, SND_WIND, SND_AMB_LVL1;
+
+let AUDIO_VOLUME = 0.8; // 0..1
+function setMasterVol(v){
+  AUDIO_VOLUME = constrain(v,0,1);
+  if (typeof masterVolume === 'function') masterVolume(AUDIO_VOLUME);
+}
+function playMainMusic() {
+  if (SND_MAIN_MUSIC) {
+    if (SND_MAIN_MUSIC.setLoop) SND_MAIN_MUSIC.setLoop(true);
+    if (!SND_MAIN_MUSIC.isPlaying || !SND_MAIN_MUSIC.isPlaying()) {
+      if (SND_MAIN_MUSIC.play) SND_MAIN_MUSIC.play();
+    }
+  }
+}
+function stopMainMusic() {
+  if (SND_MAIN_MUSIC && SND_MAIN_MUSIC.isPlaying && SND_MAIN_MUSIC.isPlaying()) {
+    if (SND_MAIN_MUSIC.stop) SND_MAIN_MUSIC.stop();
+  }
+}
 
 // ---------- SPRITES RECORTADOS ----------
 let BOB_REST = null, BOB_RISE = null, BOB_THROW = null;
@@ -17,125 +43,105 @@ let groundY = canvasHeight - 150;
 let bobbyX = 250;
 let desiredBobbyHeight = 300;
 
-// Escala por pose
-const POSE_SCALE = {
-  REST: 1.00,
-  RISE: 1.15, // agranda el RISE
-  THROW: 1.00
-};
+const POSE_SCALE = { REST:1.00, RISE:1.15, THROW:1.00 };
 
 // ---------- FSM POSES ----------
-const POSE = { REST: 'REST', RISE: 'RISE', THROW: 'THROW' };
+const POSE = { REST:'REST', RISE:'RISE', THROW:'THROW' };
 let currentPose = POSE.REST;
 
-// ---------- INPUT THRESHOLDS ----------
-const UP_DY_THRESHOLD   = -3;
-const FWD_DX_THRESHOLD  = 12;
-const IDLE_MS           = 400;
+// ---------- INPUT / THROW CONTROL ----------
 const THROW_HOLD_MS     = 120;
-const THROW_COOLDOWN_MS = 160; // intervalo mínimo entre spawns
-let lastMoveAt  = 0;
+const THROW_COOLDOWN_MS = 160;
 let lastThrowAt = -9999;
+let isHolding = false;
+let throwEndAt = 0; // ms hasta volver a REST tras THROW
 
 // ---- GESTURE (velocidad) ----
-const GESTURE_WINDOW_MS = 140; // ventana de muestreo reciente
-const GESTURE_VPS_MIN = 300;   // px/seg (gesto mínimo)
-const GESTURE_VPS_MAX = 2600;  // px/seg (gesto fuerte)
-const THROW_SPEED_MIN = 18;    // px/frame (~60fps) mínimo
-const THROW_SPEED_MAX = 72;    // px/frame máximo
-const AIM_GESTURE_BLEND = 0.08; // no se usa para apuntar (dir al target)
+const GESTURE_WINDOW_MS = 140; // ms
+const GESTURE_VPS_MIN   = 300; // px/s
+const GESTURE_VPS_MAX   = 2600;
+const THROW_SPEED_MIN   = 18;  // px/frame
+const THROW_SPEED_MAX   = 72;
 let _inputHist = [];           // {t,x,y}
-let _lastThrowSpeed = 34;      // debug
+let _lastThrowSpeed = 34;
 
 // ---------- GAME STATE ----------
-const GAME = { PLAY:'PLAY', LEVEL_END:'LEVEL_END', NEXT:'NEXT' };
-let gameState = GAME.PLAY;
+const GAME = { MENU:'MENU', PLAY:'PLAY', LEVEL_END:'LEVEL_END', NEXT:'NEXT' };
+let gameState = GAME.MENU;
 
 // Nivel/Timer/Meta
 let LEVEL_TIME_MS = 60000; // 60s
-let LEVEL_GOAL = 300;      // meta por defecto
-let levelStartAt = 0;      // ms epoch del comienzo
+let LEVEL_GOAL    = 300;
+let levelStartAt  = 0;
 let levelEndReason = '';
 
-// High Score (no se muestra en overlay, pero lo guardamos)
+// High Score
 let highScore = 0;
 
 // Overlay anim
 let overlay = { active:false, t:0, dur:600 };
-// Overlay buttons (cache)
 let overlayButtons = { next:{x:0,y:0,w:0,h:0}, restart:{x:0,y:0,w:0,h:0} };
 
 // ---------- GAME LOOP ----------
 let paused = false;
-let lastTime = 0;   // en ms
-let time = 0;       // acumulado en ms
-const MAX_DT = 1/30; // cap de dt (segundos)
+let lastTime = 0; // ms
+let time = 0;     // ms acumulado
+const MAX_DT = 1/30;
 
-// ---------- DIFICULTAD / VIENTO ----------
-let CHAOS_WIND_ON   = true;   // si querés desactivar viento físico: false
-let WIND_POWER      = 0.90;   // fuerza base del viento
-let WIND_AXE_GAIN   = 0.70;   // cuánto afecta al hacha
-let WIND_BIAS       = 0.10;   // sesgo de viento (-1 izquierda, +1 derecha)
+// ---------- VIENTO ----------
+let CHAOS_WIND_ON = true;
+let WIND_POWER    = 2.00;
+let WIND_AXE_GAIN = 1.00;
+let WIND_BIAS     = -1.50;
 
-let WIND_SCALE_T    = 0.005;  // escala temporal
-let WIND_SCALE_Y    = 0.002;  // escala vertical
+let WIND_SCALE_T = 0.005;
+let WIND_SCALE_Y = 0.002;
 let noiseT = 0.0;
 
 // ---------- GRAVEDAD ----------
 let GRAVITY_ON = true;
-let GRAVITY = 0.15; // px/frame^2 (~60fps). Se escala por dt*60
+let GRAVITY    = 0.23; // px/frame^2
 
-// ---------- VIENTO VISIBLE (icono pequeño) ----------
-let WIND_SPRITE_ON    = true;   // mostrar viento visual
-let WIND_UI_X         = 360;    // posición aprox entre Bobby y Score
-let WIND_UI_Y         = 120;
-let WIND_UI_SCALE     = 0.25;   // tamaño
-const WIND_ROT_MAX    = 0.35;   // ±20°
+// ---------- VIENTO VISIBLE ----------
+let WIND_SPRITE_ON = true;
+let WIND_UI_X = 360, WIND_UI_Y = 120, WIND_UI_SCALE = 0.25;
+const WIND_ROT_MAX = 0.35;
+let WIND_ACTIVE = false, WIND_VIS_T = 0;
+const WIND_VIS_FADE_S = 20;
 
-let WIND_ACTIVE       = false;  // si sopla
-let WIND_VIS_T        = 0;      // fade 0..1 (arranca oculto)
-const WIND_VIS_FADE_S = 20;     // velocidad de fade (1/seg)
-
-// Ráfagas automáticas (toggle on/off)
+// Ráfagas auto
 let GUSTS_ON = true;
-let gust = { next:0, durOn:[1400, 4000], durOff:[1800, 6000] };
+let gust = { next:0, durOn:[1400, 3000], durOff:[1500, 2000] };
 
-// ---------- AXES (multiple) ----------
+// ---------- AXES ----------
 let axes = [];
-
-function newAxe() {
+function newAxe(){
   return {
     active:true, stuck:false, x:0, y:0, vx:0, vy:0, angle:0,
     stickStart:0, stickDepth:12,
     wobbleAmp:0.28, wobbleDecay:3.0, wobbleFreq:18.0,
   };
 }
-
-const AXE_SCALE         = 0.70;
+const AXE_SCALE = 0.70;
 const AXE_DRAW_OFFSET_X = 280;
 const AXE_DRAW_OFFSET_Y = -150;
 
-let HAND_X = 0.72; 
-let HAND_Y = 0.08;
+let HAND_X = 0.72, HAND_Y = 0.08;
 
 // ---------- TARGET ----------
 const TARGET = {
-  x: 1650,
-  y: 548,
+  x:1650, y:540, // movible
   rings: [
-    { r: 55,  points: 100, name: 'BULL' },
-    { r: 95,  points: 50,  name: 'MID'  },
-    { r: 135, points: 25,  name: 'OUT'  }
+    { r:55,  points:100, name:'BULL' },
+    { r:95,  points:50,  name:'MID'  },
+    { r:135, points:25,  name:'OUT'  }
   ]
 };
-
-let COLLISION_SHRINK = 0.30;  // más difícil
-let MISS_PENALTY     = 10;    // penalización al fallar
+let COLLISION_SHRINK = 0.32; // 0..1 (más chico = más difícil)
 
 // ---------- SCORE ----------
 let score = 0;
-let SCORE_MAX = 999;
-let SCORE_MIN = 0;
+let SCORE_MAX = 999, SCORE_MIN = 0;
 let SCORE_PAD_3DIGITS = true;
 
 const SCORE_X = 36, SCORE_Y = 34;
@@ -143,40 +149,36 @@ const SCORE_SCALE = 0.70;
 const SCORE_TEXT_X = 230, SCORE_TEXT_Y = 103;
 const SCORE_FONT_SIZE = 39;
 
-// Tipografía global
-let SCORE_FONT = null;            
-let SCORE_FONT_FILE = 'futuramdbt_bold.otf'; // tu archivo OTF
+let SCORE_FONT = null;
+let SCORE_FONT_FILE = 'futuramdbt_bold.otf';
 
-// efecto shake del marcador
-let scoreShakeT = 0; // ms restantes de shake
+let scoreShakeT = 0;
 
-// ---------- HIT / MISS FX ----------
+// ---------- FX ----------
 let hitFx = { active:false, x:0, y:0, t:0, dur:600 };
-let floatTexts = []; // {text, x,y, t, dur}
+let floatTexts = []; // {text,x,y,t,dur}
 
 // ---------- DEBUG ----------
 let DEBUG = false;
 
-// ---------- INTRO MESSAGES ----------
+// ---------- INTRO ----------
 let hadThrownOnce = false;
 let intro = {
-  active: true,
-  idx: 0,
-  t: 0,
-  // timings (ms)
-  inMs: 650,
-  holdMs: 1100,
-  outMs: 650,
-  gapMs: 150,
-  msgs: [
-    { text: 'CUT THE TAXES', size: 86 },
-    { text: 'USE YOUR MOUSE / TOUCH TO CONTROL THE AXE', size: 34 }
+  active:true, idx:0, t:0,
+  inMs:650, holdMs:1100, outMs:650, gapMs:150,
+  msgs:[
+    { text:'HOLD TO GRAB THE AXE', size:44 },
+    { text:'RELEASE TO THROW — SPEED FOLLOWS YOUR SWIPE', size:34 }
   ]
 };
-// Ajuste manual de altura (negativo = más arriba)
 let introOffsetY = -430;
+
+// ---------- MAIN MENU UI ----------
+let menu = { btn: { x:0, y:0, w:0, h:0, pressed:false } };
+
 // ---------- PRELOAD ----------
-function preload() {
+function preload(){
+  // Escena
   IMG_BG          = loadImage('LEVEL 1 - BACKGROUND.png');
   IMG_MG          = loadImage('LEVEL 1 - MIDGROUND.png');
   IMG_FG          = loadImage('LEVEL 1 - FOREGROUND.png');
@@ -188,57 +190,145 @@ function preload() {
   IMG_AXE         = loadImage('AXE.png');
   IMG_SCORE       = loadImage('SCORE.png');
 
-  IMG_WIND        = loadImage('WIND_VISSIBLE.png'); // sprite visual viento
+  IMG_WIND        = loadImage('WIND_VISSIBLE.png');
 
-  if (SCORE_FONT_FILE) {
-    SCORE_FONT = loadFont(SCORE_FONT_FILE);
+  // Main menu
+  IMG_COVER             = loadImage('BOBBY AXE - COVER MASTER V3.png');
+  IMG_BTN_START         = loadImage('START.png');
+  IMG_BTN_START_PRESSED = loadImage('START PRESSED.png');
+
+  // Fuente
+  if (SCORE_FONT_FILE) SCORE_FONT = loadFont(SCORE_FONT_FILE);
+
+  // Sonidos (con onError para no bloquear el preload si falta algo)
+  if (typeof loadSound === 'function') {
+    SND_AXE_THROW      = loadSound('AxeThrow.mp3',      null, () => SND_AXE_THROW=null);
+    SND_BUTTON         = loadSound('Button.wav',        null, () => SND_BUTTON=null);
+    SND_GRAB_AXE       = loadSound('GrabAxe.wav',       null, () => SND_GRAB_AXE=null);
+    SND_LEVEL_COMPLETE = loadSound('LevelComplete.wav', null, () => SND_LEVEL_COMPLETE=null);
+    SND_MAIN_MUSIC     = loadSound('Mainmusic.wav',     null, () => SND_MAIN_MUSIC=null);
+    SND_POINTS_LOST    = loadSound('PointsLost.wav',    null, () => SND_POINTS_LOST=null);
+    SND_TARGET         = loadSound('Target.mp3',        null, () => SND_TARGET=null);
+    SND_WIND           = loadSound('Wind.wav',          null, () => SND_WIND=null);
+    SND_AMB_LVL1       = loadSound('AmbLevel1.wav',     null, () => SND_AMB_LVL1=null);
   }
 }
 
 // ---------- SETUP ----------
-function setup() {
+function setup(){
   createCanvas(canvasWidth, canvasHeight);
   imageMode(CORNER);
+  if (SCORE_FONT) textFont(SCORE_FONT);
 
-  if (SCORE_FONT) {
-    textFont(SCORE_FONT);   // fuente global para todo
-  }
+  setMasterVol(AUDIO_VOLUME);
 
+  // Prepara sprites recortados
   BOB_REST  = cropTransparent(IMG_BOBBY_REST, 1);
   BOB_RISE  = cropTransparent(IMG_BOBBY_RISE, 1);
   BOB_THROW = cropTransparent(IMG_BOBBY_THROW, 1);
 
   noiseSeed(Math.floor(Math.random()*100000));
 
-  lastMoveAt = millis();
   lastTime = millis();
 
-  startLevel();
+  // Entramos al menú
+  goToMenu();
 }
 
-function startLevel() {
+// ---------- MAIN MENU ----------
+function goToMenu(){
+  gameState = GAME.MENU;
+
+  // Colocar botón centrado abajo
+  const bw = IMG_BTN_START ? IMG_BTN_START.width : 420;
+  const bh = IMG_BTN_START ? IMG_BTN_START.height : 140;
+  menu.btn.w = bw;
+  menu.btn.h = bh;
+  menu.btn.x = width/2 - bw/2;
+  menu.btn.y = height - bh - 40;
+  menu.btn.pressed = false;
+
+  // Música principal ON en menú
+  playMainMusic();
+}
+
+function renderMenu(){
+  clear();
+  if (IMG_COVER) {
+    imageMode(CORNER);
+    image(IMG_COVER, 0, 0, width, height);
+  } else {
+    background(10,9,14);
+  }
+
+  const b = menu.btn;
+  const sprite = (b.pressed && IMG_BTN_START_PRESSED) ? IMG_BTN_START_PRESSED : IMG_BTN_START;
+  if (sprite) image(sprite, b.x, b.y, b.w, b.h);
+  else {
+    noStroke(); fill(150,40,20,230); rect(b.x, b.y, b.w, b.h, 16);
+    fill(255); textAlign(CENTER,CENTER); textSize(48); text('START', b.x+b.w/2, b.y+b.h/2);
+  }
+}
+
+// ---------- LEVEL FLOW ----------
+function startLevel(){
   levelStartAt = millis();
   levelEndReason = '';
   overlay = { active:false, t:0, dur:600 };
   gameState = GAME.PLAY;
-  hardReset(true); // true = no resetear score
+  hardReset(true);
 
-  // intro reset
+  // asegurar música en niveles
+  playMainMusic();
+
   hadThrownOnce = false;
-  intro.active = true;
-  intro.idx = 0;
-  intro.t = 0;
+  intro.active = true; intro.idx=0; intro.t=0;
+
+  // Ambiente del nivel (opcional)
+  if (SND_AMB_LVL1) {
+    if (SND_AMB_LVL1.setLoop) SND_AMB_LVL1.setLoop(true);
+    if (!SND_AMB_LVL1.isPlaying || !SND_AMB_LVL1.isPlaying()) {
+      if (SND_AMB_LVL1.play) SND_AMB_LVL1.play();
+    }
+  }
 }
 
-// ---------- DRAW (Game Loop) ----------
-function draw() {
+function endLevel(){
+  if (score > highScore) {
+    highScore = score;
+    try { if (window.localStorage) localStorage.setItem('bobby_highscore', String(highScore)); } catch(e){}
+  }
+  gameState = GAME.LEVEL_END;
+  overlay.active = true; overlay.t = 0;
+
+  // AUDIO: parar main music y sonar jingle
+  stopMainMusic();
+  if (SND_LEVEL_COMPLETE && SND_LEVEL_COMPLETE.play) SND_LEVEL_COMPLETE.play();
+}
+
+function goToNextScreen(){
+  // Mostrar pantalla "Next level — coming soon"
+  gameState = GAME.NEXT;
+
+  // (opcional) vuelve a encender la música principal en esta pantalla
+  // así no queda silencio después de LevelComplete
+  playMainMusic();
+}
+
+function restartLevel(){
+  score = 0;
+  startLevel();
+}
+
+// ---------- DRAW ----------
+function draw(){
   const now = millis();
-  let dt = (now - lastTime) / 1000; // segundos
+  let dt = (now - lastTime)/1000;
   lastTime = now;
   if (dt > MAX_DT) dt = MAX_DT;
 
   if (!paused) {
-    time += dt * 1000; // acumulado en ms
+    time += dt*1000;
     if (gameState === GAME.PLAY) update(dt);
     else if (gameState === GAME.LEVEL_END) updateOverlay(dt);
   }
@@ -246,28 +336,12 @@ function draw() {
 }
 
 // ---------- UPDATE ----------
-function update(dt) {
+function update(dt){
   recordInputSample(millis());
 
-  const {dx, dy} = inputDelta();
   const now = millis();
-  if (Math.hypot(dx, dy) > 0.5) lastMoveAt = now;
-
-  const throwHeld = (now - lastThrowAt) < THROW_HOLD_MS;
-  if (currentPose === POSE.REST) {
-    if (dy <= UP_DY_THRESHOLD) currentPose = POSE.RISE;
-  } else if (currentPose === POSE.RISE) {
-    if (dx >= FWD_DX_THRESHOLD) {
-      if (now - lastThrowAt >= THROW_COOLDOWN_MS) {
-        currentPose = POSE.THROW;
-        lastThrowAt = now;
-        spawnAxe();
-      }
-    } else if (now - lastMoveAt > IDLE_MS) {
-      currentPose = POSE.REST;
-    }
-  } else if (currentPose === POSE.THROW) {
-    if (!throwHeld) currentPose = POSE.REST;
+  if (currentPose === POSE.THROW) {
+    if (now >= throwEndAt) currentPose = POSE.REST;
   }
 
   updateWindGusts(now, dt);
@@ -276,7 +350,7 @@ function update(dt) {
   updateIntro(dt);
   updateTimerAndCheckEnd();
 
-  noiseT += WIND_SCALE_T * (dt*60); // viento tiempo
+  noiseT += WIND_SCALE_T * (dt*60);
 }
 
 function updateFx(dt){
@@ -297,10 +371,13 @@ function updateFx(dt){
 
 function updateWindGusts(now, dt){
   if (GUSTS_ON && now >= gust.next) {
+    const was = WIND_ACTIVE;
     WIND_ACTIVE = !WIND_ACTIVE;
     const range = WIND_ACTIVE ? gust.durOn : gust.durOff;
     const dur = random(range[0], range[1]);
     gust.next = now + dur;
+
+    if (!was && WIND_ACTIVE && SND_WIND && SND_WIND.play) SND_WIND.play();
   }
   const target = WIND_ACTIVE ? 1 : 0;
   const k = WIND_VIS_FADE_S * dt;
@@ -309,19 +386,16 @@ function updateWindGusts(now, dt){
 
 function updateIntro(dt){
   if (!intro.active) return;
-  if (gameState !== GAME.PLAY) { intro.active = false; return; }
+  if (gameState !== GAME.PLAY) { intro.active=false; return; }
 
   const cur = intro.msgs[intro.idx];
-  if (!cur) { intro.active = false; return; }
+  if (!cur) { intro.active=false; return; }
 
   intro.t += dt*1000;
   const total = intro.inMs + intro.holdMs + intro.outMs + intro.gapMs;
   if (intro.t >= total) {
-    intro.t = 0;
-    intro.idx++;
-    if (intro.idx >= intro.msgs.length) {
-      intro.active = false;
-    }
+    intro.t = 0; intro.idx++;
+    if (intro.idx >= intro.msgs.length) intro.active = false;
   }
 }
 
@@ -337,55 +411,43 @@ function updateTimerAndCheckEnd(){
   }
 }
 
-function endLevel(){
-  if (score > highScore) {
-    highScore = score;
-    try { if (window.localStorage) localStorage.setItem('bobby_highscore', String(highScore)); } catch(e) {}
-  }
-  gameState = GAME.LEVEL_END;
-  overlay.active = true; overlay.t = 0;
-}
-
 function updateOverlay(dt){
   if (!overlay.active) return;
   overlay.t += dt*1000;
   if (overlay.t > overlay.dur) overlay.t = overlay.dur;
 }
+
 // ---------- RENDER ----------
-function render() {
+function render(){
+  if (gameState === GAME.MENU) {
+    renderMenu();
+    return;
+  }
+
   if (gameState === GAME.NEXT) {
     renderNextScreen();
     return;
   }
 
   clear();
-
   image(IMG_BG, 0, 0, canvasWidth, canvasHeight);
   image(IMG_MG, 0, 0, canvasWidth, canvasHeight);
 
-  // Viento visible (icono pequeño)
   drawWindSpriteSmall();
 
   image(IMG_FG, 0, 0, canvasWidth, canvasHeight);
 
-  // Axes
   drawAxes();
 
-  // Bobby
-  const {drawX, drawY, drawW, drawH} = getBobbyRect(currentPose);
-  const sprite = (currentPose === POSE.THROW) ? BOB_THROW
-                : (currentPose === POSE.RISE) ? BOB_RISE
-                : BOB_REST;
-  image(sprite.img, drawX, drawY, drawW, drawH);
+  const r = getBobbyRect(currentPose);
+  const sprite = (currentPose===POSE.THROW)?BOB_THROW:((currentPose===POSE.RISE)?BOB_RISE:BOB_REST);
+  image(sprite.img, r.drawX, r.drawY, r.drawW, r.drawH);
 
-  // HUD
   drawHUD();
 
-  // FX
   if (hitFx.active) drawHitFx();
   drawFloatTexts();
 
-  // Intro messages
   drawIntro();
 
   if (DEBUG) {
@@ -398,7 +460,6 @@ function render() {
   if (gameState === GAME.LEVEL_END) drawLevelEndOverlay();
 }
 
-// ---------- WIND SPRITE ----------
 function drawWindSpriteSmall(){
   if (!WIND_SPRITE_ON || !IMG_WIND) return;
   if (WIND_VIS_T <= 0.001) return;
@@ -523,8 +584,7 @@ function drawIntro(){
   const t = intro.t;
   let a = 0.0;
   if (t < intro.inMs) {
-    const p = t / intro.inMs;
-    a = easeInOutCubic(constrain(p, 0, 1));
+    const p = t / intro.inMs; a = easeInOutCubic(constrain(p, 0, 1));
   } else if (t < intro.inMs + intro.holdMs) {
     a = 1.0;
   } else if (t < intro.inMs + intro.holdMs + intro.outMs) {
@@ -547,14 +607,14 @@ function drawIntro(){
   text(cur.text, width/2, height/2 + introOffsetY);
   pop();
 }
+
 // ---------- INPUT HELPERS ----------
 function inputDelta() {
-  // Soporta mouse y touch (primer touch)
   if (touches && touches.length > 0) {
     const t = touches[0];
     const p = {x: pmouseX, y: pmouseY};
     return { dx: t.x - p.x, dy: t.y - p.y };
-    }
+  }
   return { dx: mouseX - pmouseX, dy: mouseY - pmouseY };
 }
 
@@ -566,7 +626,6 @@ function getPointer(){
 function recordInputSample(now){
   const p = getPointer();
   _inputHist.push({t: now, x: p.x, y: p.y});
-  // recortar ventana
   const cutoff = now - Math.max(GESTURE_WINDOW_MS, 60);
   while (_inputHist.length > 1 && _inputHist[0].t < cutoff) _inputHist.shift();
 }
@@ -575,9 +634,9 @@ function gestureSpeed(now){
   if (_inputHist.length < 2) return 0;
   const first = _inputHist[0];
   const last  = _inputHist[_inputHist.length-1];
-  const dt = Math.max(1, last.t - first.t) / 1000.0; // seg
+  const dt = Math.max(1, last.t - first.t) / 1000.0;
   const distPx = Math.hypot(last.x-first.x, last.y-first.y);
-  return distPx / dt; // px/seg
+  return distPx / dt;
 }
 
 // ---------- MATH & MISC ----------
@@ -585,13 +644,8 @@ function easeOutQuad(t){ return 1-(1-t)*(1-t); }
 function easeOutCubic(t){ return 1-Math.pow(1-t,3); }
 function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
 
-function pad3(n) {
-  if (n < 10) return '00' + n;
-  if (n < 100) return '0' + n;
-  return '' + n;
-}
+function pad3(n){ if (n<10) return '00'+n; if(n<100) return '0'+n; return ''+n; }
 
-// FBM
 function fbm(x, y, octaves = 3) {
   let value = 0, amp = 0.5, freq = 1;
   for (let i = 0; i < octaves; i++) {
@@ -601,7 +655,6 @@ function fbm(x, y, octaves = 3) {
   return value;
 }
 
-// cropTransparent
 function cropTransparent(src, alphaThreshold = 1) {
   src.loadPixels();
   const w = src.width, h = src.height, px = src.pixels;
@@ -618,19 +671,11 @@ function cropTransparent(src, alphaThreshold = 1) {
   return {img:src.get(minX,minY,cw,ch), ox:minX, oy:minY};
 }
 
-// ---------- RENDER: AXES & BOBBY ----------
-function getBobbyRect(pose) {
-  const spr = (pose === POSE.THROW) ? BOB_THROW
-            : (pose === POSE.RISE)  ? BOB_RISE
-            : BOB_REST;
-
-  const mult = (pose === POSE.THROW) ? POSE_SCALE.THROW
-             : (pose === POSE.RISE)  ? POSE_SCALE.RISE
-             : POSE_SCALE.REST;
-
+function getBobbyRect(pose){
+  const spr = (pose===POSE.THROW)?BOB_THROW:((pose===POSE.RISE)?BOB_RISE:BOB_REST);
+  const mult = (pose===POSE.THROW)?POSE_SCALE.THROW:((pose===POSE.RISE)?POSE_SCALE.RISE:POSE_SCALE.REST);
   const targetH = desiredBobbyHeight * mult;
   const s = targetH / spr.img.height;
-
   const w = spr.img.width * s;
   const h = spr.img.height * s;
   const x = bobbyX;
@@ -638,8 +683,7 @@ function getBobbyRect(pose) {
   return { drawX:x, drawY:y, drawW:w, drawH:h, scale:s };
 }
 
-function getHandPos() {
-  // referencia del hand usando RISE
+function getHandPos(){
   const spr = BOB_RISE;
   const targetH = desiredBobbyHeight * POSE_SCALE.RISE;
   const s = targetH / spr.img.height;
@@ -650,7 +694,7 @@ function getHandPos() {
   return { x: x + w * HAND_X, y: y + h * HAND_Y };
 }
 
-function pointsForDistance(d) {
+function pointsForDistance(d){
   for (const ring of TARGET.rings) {
     if (d <= ring.r * COLLISION_SHRINK) return ring.points;
   }
@@ -658,38 +702,36 @@ function pointsForDistance(d) {
 }
 
 function mapRange(v, a0, a1, b0, b1){
-  const t = (v - a0) / (a1 - a0);
+  const denom = (a1 - a0);
+  const t = denom === 0 ? 0 : (v - a0) / denom;
   return b0 + (b1 - b0) * constrain(t, 0, 1);
 }
 
-function spawnAxe() {
+function spawnAxe(){
   const hand = getHandPos();
   const axe = newAxe();
-  axe.x = hand.x; 
-  axe.y = hand.y;
+  axe.x = hand.x; axe.y = hand.y;
 
-  // Dirección SIEMPRE al target (evita “rebotes” hacia atrás)
+  // Direccion al target
   let dirX = TARGET.x - hand.x;
   let dirY = TARGET.y - hand.y;
   let len  = Math.hypot(dirX, dirY) || 1;
   const ux = dirX / len;
   const uy = dirY / len;
 
-  // Potencia desde la velocidad del gesto (px/seg → px/frame)
+  // Potencia por gesto
   const vps = gestureSpeed(millis());
   let speedPF = mapRange(vps, GESTURE_VPS_MIN, GESTURE_VPS_MAX, THROW_SPEED_MIN, THROW_SPEED_MAX);
   speedPF = constrain(speedPF, THROW_SPEED_MIN, THROW_SPEED_MAX);
   _lastThrowSpeed = speedPF;
 
-  // Velocidad inicial (con un mínimo hacia adelante)
-  const MIN_FORWARD_VX = 6; // px/frame
+  const MIN_FORWARD_VX = 6;
   axe.vx = Math.max(MIN_FORWARD_VX, ux * speedPF);
   axe.vy = uy * speedPF;
   axe.angle = Math.atan2(axe.vy, axe.vx);
 
   axes.push(axe);
 
-  // ocultar intro al primer tiro
   hadThrownOnce = true;
   intro.active = false;
 }
@@ -702,12 +744,12 @@ function updateAxes(dt){
     if (!axe.stuck) {
       if (GRAVITY_ON) axe.vy += GRAVITY * (dt*60);
 
-      // Viento solo cuando hay ráfaga activa
-      if (CHAOS_WIND_ON && WIND_ACTIVE) {
-        const n = fbm(noiseT, axe.y * WIND_SCALE_Y, 4);
-        let wind = (n * 2 - 1 + WIND_BIAS) * WIND_POWER;
-        axe.vx += wind * WIND_AXE_GAIN * (dt*60);
-      }
+     if (CHAOS_WIND_ON && WIND_ACTIVE) {
+  const raw  = fbm(noiseT, axe.y * WIND_SCALE_Y, 4) * 2 - 1; // [-1..1]
+  const bias = constrain(WIND_BIAS, -1, 1);                   // evita sesgo > 1
+  const wind = (raw + bias) * WIND_POWER;
+  axe.vx += wind * WIND_AXE_GAIN * (dt*60);
+}
 
       axe.x += axe.vx * (dt*60);
       axe.y += axe.vy * (dt*60);
@@ -720,22 +762,27 @@ function updateAxes(dt){
         axe.vx = axe.vy = 0;
         axe.stickStart = millis();
         score += pts;
+
+        if (SND_TARGET && SND_TARGET.play) SND_TARGET.play();
+
         hitFx = { active:true, x:TARGET.x, y:TARGET.y, t:0, dur:600 };
       }
 
       if (axe.x < -120 || axe.x > width+120 || axe.y < -120 || axe.y > height+120) {
         axe.active = false;
-        const pen = Math.min(MISS_PENALTY, score);
+        const pen = Math.min(10, score);
         score = constrain(score - pen, SCORE_MIN, SCORE_MAX);
         scoreShakeT = 300;
         floatTexts.push({ text:'-'+pen, x:SCORE_TEXT_X+60, y:SCORE_TEXT_Y+20, t:0, dur:800 });
+
+        if (SND_POINTS_LOST && SND_POINTS_LOST.play) SND_POINTS_LOST.play();
       }
     } else {
       const t = (millis() - axe.stickStart) / 1000;
       const decay = Math.exp(-axe.wobbleDecay * t);
       const wob = Math.sin(axe.wobbleFreq * t) * axe.wobbleAmp * decay;
       axe.angle = wob;
-      if (millis() - axe.stickStart > 1000) axe.active = false; // desaparece tras 1s
+      if (millis() - axe.stickStart > 1000) axe.active = false;
     }
   }
 }
@@ -753,11 +800,9 @@ function drawAxes(){
   }
 }
 
-function drawHitFx() {
+function drawHitFx(){
   const p = hitFx.t / hitFx.dur;
-  const r0 = 10;
-  const r1 = 150;
-  const r = lerp(r0, r1, easeOutQuad(p));
+  const r = lerp(10, 150, easeOutQuad(p));
   const a = 180 * (1 - p);
   noFill(); stroke(255, 245, 200, a); strokeWeight(4);
   circle(hitFx.x, hitFx.y, r*2);
@@ -770,41 +815,117 @@ function drawFloatTexts(){
     const a = 255 * (1 - p);
     push();
     noStroke(); fill(255,80,80,a);
-    textAlign(LEFT, TOP);
-    textSize(36);
+    textAlign(LEFT, TOP); textSize(36);
     text(f.text, f.x, f.y + yy);
     pop();
   }
 }
 
-// ---------- INPUT: KEYBOARD / MOUSE ----------
-function keyPressed() {
-  if (key === 'p' || key === 'P') paused = !paused;
-  if (key === 'r' || key === 'R') restartLevel();
-  if (key === 'v' || key === 'V') { // toggle manual de ráfaga para probar
+// ---------- INPUT ----------
+function keyPressed(){
+  if (key==='p'||key==='P') paused = !paused;
+  if (key==='r'||key==='R') restartLevel();
+  if (key==='v'||key==='V') {
+    const was = WIND_ACTIVE;
     WIND_ACTIVE = !WIND_ACTIVE; 
-    gust.next = millis() + 999999; // pausa el auto-toggle
+    gust.next = millis() + 999999; // pausa auto
+    if (!was && WIND_ACTIVE && SND_WIND && SND_WIND.play) SND_WIND.play();
   }
-  if (gameState === GAME.LEVEL_END && (key === 'n' || key === 'N')) goToNextScreen();
+  if (gameState===GAME.LEVEL_END && (key==='n'||key==='N')) goToNextScreen();
 }
 
 function mousePressed(){
+  // --- MENU ---
+  if (gameState === GAME.MENU){
+    const b = menu.btn;
+    if (mouseX>=b.x && mouseX<=b.x+b.w && mouseY>=b.y && mouseY<=b.y+b.h){
+      b.pressed = true;
+      if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play();
+    }
+    return;
+  }
+
+  // --- LEVEL_END OVERLAY ---
   if (gameState === GAME.LEVEL_END){
     const m = {x:mouseX, y:mouseY};
     const hit = (b)=> m.x>=b.x && m.x<=b.x+b.w && m.y>=b.y && m.y<=b.y+b.h;
-    if (hit(overlayButtons.next)) { goToNextScreen(); return; }
-    if (hit(overlayButtons.restart)) { restartLevel(); return; }
+    if (hit(overlayButtons.next))    { if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play(); goToNextScreen(); return; }
+    if (hit(overlayButtons.restart)) { if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play(); restartLevel();    return; }
   }
+
+  // --- PLAY ---
+  beginHold();
 }
 
-function restartLevel(){
-  // Reinicia el nivel completo (timer + score)
-  score = 0;
-  startLevel();
+function mouseReleased(){
+  // --- MENU ---
+  if (gameState === GAME.MENU){
+    const b = menu.btn;
+    const inside = mouseX>=b.x && mouseX<=b.x+b.w && mouseY>=b.y && mouseY<=b.y+b.h;
+    const wasPressed = b.pressed;
+    b.pressed = false;
+    if (wasPressed && inside){ startLevel(); }
+    return;
+  }
+  endHold();
 }
 
-function goToNextScreen(){
-  gameState = GAME.NEXT;
+// Touch wrappers
+function touchStarted(){
+  if (gameState === GAME.MENU){
+    const b = menu.btn;
+    if (touches.length){
+      const t = touches[0];
+      if (t.x>=b.x && t.x<=b.x+b.w && t.y>=b.y && t.y<=b.y+b.h){
+        b.pressed = true;
+        if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play();
+      }
+    }
+    return false;
+  }
+  beginHold();
+  return false;
+}
+function touchEnded(){
+  if (gameState === GAME.MENU){
+    const b = menu.btn;
+    const inside = mouseX>=b.x && mouseX<=b.x+b.w && mouseY>=b.y && mouseY<=b.y+b.h;
+    const wasPressed = b.pressed;
+    b.pressed = false;
+    if (wasPressed && inside){ startLevel(); }
+    return false;
+  }
+  endHold();
+  return false;
+}
+
+function beginHold(){
+  if (gameState !== GAME.PLAY) return;
+  isHolding = true;
+  currentPose = POSE.RISE;
+
+  if (typeof userStartAudio === 'function') userStartAudio();
+  if (SND_GRAB_AXE && SND_GRAB_AXE.play) SND_GRAB_AXE.play();
+
+  _inputHist.length = 0;
+  recordInputSample(millis());
+}
+
+function endHold(){
+  if (!isHolding) return;
+  isHolding = false;
+
+  const now = millis();
+  if (now - lastThrowAt < THROW_COOLDOWN_MS) {
+    currentPose = POSE.REST; return;
+  }
+
+  currentPose = POSE.THROW;
+  lastThrowAt = now;
+  spawnAxe();
+  throwEndAt = now + THROW_HOLD_MS;
+
+  if (SND_AXE_THROW && SND_AXE_THROW.play) SND_AXE_THROW.play();
 }
 
 function renderNextScreen(){
@@ -816,12 +937,12 @@ function renderNextScreen(){
   textSize(20); fill(220); text('Press R to restart current level', width/2, height/2 + 30);
 }
 
-function hardReset(keepScore=false) {
+function hardReset(keepScore=false){
   axes.length = 0;
   scoreShakeT = 0; 
-  hitFx.active = false; 
-  hitFx.t = 0; 
+  hitFx.active = false; hitFx.t = 0; 
   floatTexts.length = 0;
   currentPose = POSE.REST;
   if (!keepScore) score = 0;
 }
+
