@@ -820,7 +820,10 @@ function drawLevelEndOverlay(){
   textSize(22); fill(220);
   text('Goal: '+LEVEL_GOAL, x+panelW/2, yEnd+174);
 
-  const bw = 200, bh = 50, gap = 24;
+  const isMobile = windowWidth < 900;
+const bw = isMobile ? 320 : 240;   // ancho mayor en mobile
+const bh = isMobile ? 90  : 60;    // alto mayor en mobile
+const gap = isMobile ? 40  : 24;
   const btnY = yEnd + panelH - 86;
 
   const rx = x + panelW/2 - bw - gap/2;
