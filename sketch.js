@@ -210,7 +210,7 @@ const TARGET = {
     { r:135, points:25,  name:'OUT'  }
   ]
 };
-let COLLISION_SHRINK = 0.40; // 0..1 (más chico = más difícil)
+let COLLISION_SHRINK = 0.50; // 0..1 (más chico = más difícil)
 
 // ---------- SCORE ----------
 let score = 0;
