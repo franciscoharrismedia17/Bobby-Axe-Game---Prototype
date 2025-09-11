@@ -1134,12 +1134,9 @@ function mousePressed(){
 
   // --- LEVEL_END OVERLAY ---
   if (gameState === GAME.LEVEL_END){
-    const m = screenToWorld({x:mouseX, y:mouseY});
-    const hit = (b)=> m.x>=b.x && m.x<=b.x+b.w && m.y>=b.y && m.y<=b.y+b.h;
-    if (hit(overlayButtons.next))    { if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play(); goToNextScreen(); return; }
-    if (hit(overlayButtons.restart)) { if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play(); restartLevel();    return; }
-  }
-
+  // Usa el handler común con coords de mouse
+  if (handleOverlayTapAt(mouseX, mouseY)) return;
+}
   // --- PLAY ---
   beginHold();
 }
@@ -1159,7 +1156,7 @@ function mouseReleased(){
 
 // Touch wrappers
 function touchStarted(){
-  if (gameState === GAME.MENU){
+   if (gameState === GAME.MENU){
     const b = menu.btn;
     if (touches.length){
       const t = touches[0];
@@ -1170,6 +1167,14 @@ function touchStarted(){
     }
     return false;
   }
+
+  // --- LEVEL_END OVERLAY (tocar botones) ---
+  if (gameState === GAME.LEVEL_END){
+    if (touches.length && handleOverlayTapAt(touches[0].x, touches[0].y)) return false;
+    return false;
+  }
+
+  // --- PLAY ---
   beginHold();
   return false;
 }
@@ -1232,6 +1237,25 @@ function renderNextScreen(){
   textSize(44); text('Next level — coming soon', BASE_W/2, BASE_H/2 - 20);
   textSize(20); fill(220); text('Press R to restart current level', BASE_W/2, BASE_H/2 + 30);
   pop();
+}
+function handleOverlayTapAt(screenX, screenY) {
+  // Convierte a coords base (1920x1080)
+  const m = screenToWorld({ x: screenX, y: screenY });
+
+  // Botones del overlay están guardados en coords base
+  const inside = (b) => m.x >= b.x && m.x <= b.x + b.w && m.y >= b.y && m.y <= b.y + b.h;
+
+  if (inside(overlayButtons.next)) {
+    if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play();
+    goToNextScreen();
+    return true;
+  }
+  if (inside(overlayButtons.restart)) {
+    if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play();
+    restartLevel();
+    return true;
+  }
+  return false;
 }
 
 function hardReset(keepScore=false){
