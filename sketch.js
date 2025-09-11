@@ -92,7 +92,7 @@ const MAX_DT = 1/30;
 let CHAOS_WIND_ON = true;
 let WIND_POWER    = 2.00;
 let WIND_AXE_GAIN = 1.00;
-let WIND_BIAS     = -1.50;
+let WIND_BIAS     = -0.30;
 
 let WIND_SCALE_T = 0.005;
 let WIND_SCALE_Y = 0.002;
@@ -100,7 +100,7 @@ let noiseT = 0.0;
 
 // ---------- GRAVEDAD ----------
 let GRAVITY_ON = true;
-let GRAVITY    = 0.23; // px/frame^2
+let GRAVITY    = 0.45; // px/frame^2
 
 // ---------- VIENTO VISIBLE ----------
 let WIND_SPRITE_ON = true;
@@ -137,7 +137,7 @@ const TARGET = {
     { r:135, points:25,  name:'OUT'  }
   ]
 };
-let COLLISION_SHRINK = 0.32; // 0..1 (más chico = más difícil)
+let COLLISION_SHRINK = 0.40; // 0..1 (más chico = más difícil)
 
 // ---------- SCORE ----------
 let score = 0;
@@ -707,27 +707,43 @@ function mapRange(v, a0, a1, b0, b1){
   return b0 + (b1 - b0) * constrain(t, 0, 1);
 }
 
-function spawnAxe(){
+function spawnAxe(aimPoint = null){
   const hand = getHandPos();
   const axe = newAxe();
   axe.x = hand.x; axe.y = hand.y;
 
-  // Direccion al target
-  let dirX = TARGET.x - hand.x;
-  let dirY = TARGET.y - hand.y;
-  let len  = Math.hypot(dirX, dirY) || 1;
+  // Dirección: al cursor si se aportó aimPoint; si no, al TARGET como fallback
+  let tx = (aimPoint && typeof aimPoint.x === 'number') ? aimPoint.x : TARGET.x;
+  let ty = (aimPoint && typeof aimPoint.y === 'number') ? aimPoint.y : TARGET.y;
+
+  let dirX = tx - hand.x;
+  let dirY = ty - hand.y;
+  let len  = Math.hypot(dirX, dirY);
+
+  // Evitar vector casi nulo: usa el último delta de gesto como respaldo
+  if (len < 1e-3) {
+    const first = _inputHist[0], last = _inputHist[_inputHist.length - 1];
+    if (first && last) {
+      dirX = last.x - first.x;
+      dirY = last.y - first.y;
+      len  = Math.hypot(dirX, dirY);
+    }
+    if (len < 1e-3) { dirX = 1; dirY = 0; len = 1; } // fallback duro
+  }
+
   const ux = dirX / len;
   const uy = dirY / len;
 
-  // Potencia por gesto
+  // Potencia por gesto (igual que antes)
   const vps = gestureSpeed(millis());
   let speedPF = mapRange(vps, GESTURE_VPS_MIN, GESTURE_VPS_MAX, THROW_SPEED_MIN, THROW_SPEED_MAX);
   speedPF = constrain(speedPF, THROW_SPEED_MIN, THROW_SPEED_MAX);
   _lastThrowSpeed = speedPF;
 
-  const MIN_FORWARD_VX = 6;
-  axe.vx = Math.max(MIN_FORWARD_VX, ux * speedPF);
-  axe.vy = uy * speedPF;
+  // ¡Sin clamp hacia delante! Permite tiros hacia arriba/izquierda según cursor
+  axe.vx = ux * speedPF;
+  axe.vy = uy * speedPF; // si uy < 0 y el cursor está arriba de la mano, sale hacia arriba
+
   axe.angle = Math.atan2(axe.vy, axe.vx);
 
   axes.push(axe);
@@ -922,7 +938,11 @@ function endHold(){
 
   currentPose = POSE.THROW;
   lastThrowAt = now;
-  spawnAxe();
+
+  // Nuevo: el hacha apunta a donde esté el cursor al SOLTAR
+  const aimPoint = getPointer();
+  spawnAxe(aimPoint);
+
   throwEndAt = now + THROW_HOLD_MS;
 
   if (SND_AXE_THROW && SND_AXE_THROW.play) SND_AXE_THROW.play();
