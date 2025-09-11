@@ -1,13 +1,17 @@
 // ===== Bobby Axe - Full Sketch with Main Menu (v0.9) =====
+// ===== Mod con sistema de niveles (LEVELS[]) =====
 
 // ---------- CANVAS ----------
 let canvasWidth = 1920, canvasHeight = 1080;
 
-// ---------- ART ----------
+// ---------- ART (actuales/activos en el nivel cargado) ----------
 let IMG_BG, IMG_MG, IMG_FG;
 let IMG_BOBBY_REST, IMG_BOBBY_RISE, IMG_BOBBY_THROW;
 let IMG_AXE, IMG_SCORE;
 let IMG_WIND;
+
+// Mapa de imágenes precargadas por nombre de archivo (para asignarlas por nivel)
+let IMG_MAP = {};
 
 // ---------- MAIN MENU ASSETS ----------
 let IMG_COVER, IMG_BTN_START, IMG_BTN_START_PRESSED;
@@ -69,11 +73,79 @@ let _lastThrowSpeed = 34;
 const GAME = { MENU:'MENU', PLAY:'PLAY', LEVEL_END:'LEVEL_END', NEXT:'NEXT' };
 let gameState = GAME.MENU;
 
-// Nivel/Timer/Meta
+// Nivel/Timer/Meta (estos se pisan por nivel desde LEVELS[])
 let LEVEL_TIME_MS = 60000; // 60s
 let LEVEL_GOAL    = 300;
 let levelStartAt  = 0;
 let levelEndReason = '';
+
+// Sistema de niveles
+/* ===========================================================
+   LEVELS[] — Configuración por nivel
+   - Puedes ajustar por nivel:
+     target: { x, y }   // *Solo modifica Nivel 2 y Nivel 3* (Nivel 1 queda igual)
+     gravity            // gravedad para el cálculo de trayectoria
+     windPower          // intensidad del viento
+     windBias           // sesgo (- izq / + der)
+     windGain           // acople del viento al hacha (opcional)
+     bg: { bg, mg, fg } // nombres de archivos de fondo/mid/fore por nivel
+     durationSec        // tiempo límite
+     scoreTarget        // puntaje objetivo
+   =========================================================== */
+const LEVELS = [
+  // NIVEL 1 — *Conservar exactamente la posición actual del target*
+  {
+    name: 'Level 1',
+    target: { x: 1650, y: 540 },     // <- NO CAMBIAR (mantiene el nivel 1 como está hoy)
+    gravity: 0.45,
+    windPower: 0.50,
+    windBias: -0.80,
+    windGain: 1.00,
+    bg: {
+      bg: 'LEVEL 1 - BACKGROUND.png',
+      mg: 'LEVEL 1 - MIDGROUND.png',
+      fg: 'LEVEL 1 - FOREGROUND.png',
+    },
+    durationSec: 60,
+    scoreTarget: 300
+  },
+
+  // NIVEL 2 — Puedes ajustar target.x y target.y libremente
+  {
+    name: 'Level 2',
+    target: { x: 1650, y: 570 },     // <-- AJUSTA AQUÍ (independiente de Nivel 1)
+    gravity: 0.50,                   // un poco más de caída
+    windPower: 2.00,                 // viento algo más fuerte
+    windBias: -1.55,                 // menos sesgo a la izquierda
+    windGain: 1.00,                  // acople estándar
+    bg: {
+      bg: 'LEVEL 2 - BACKGROUND.png',
+      mg: 'LEVEL 2 - MIDGROUND.png',
+      fg: 'LEVEL 2 - FOREGROUND.png',
+    },
+    durationSec: 55,                 // dificultad creciente
+    scoreTarget: 450
+  },
+
+  // NIVEL 3 — También puedes ajustar target.x y target.y
+  {
+    name: 'Level 3',
+    target: { x: 1320, y: 630 },     // <-- AJUSTA AQUÍ (independiente de Nivel 1 y 2)
+    gravity: 0.56,                   // más desafiante
+    windPower: 2.55,                 // ráfagas más notorias
+    windBias: -3.25,                  // sesgo a la derecha
+    windGain: 1.10,                  // leve aumento de acople
+    bg: {
+      bg: 'LEVEL 3 - BACKGROUND.png',
+      mg: 'LEVEL 3 - MIDGROUND.png',
+      fg: 'LEVEL 3 - FOREGROUND.png',
+    },
+    durationSec: 50,
+    scoreTarget: 600
+  }
+];
+
+let currentLevelIndex = 0; // comienza en Level 1
 
 // High Score
 let highScore = 0;
@@ -130,7 +202,8 @@ let HAND_X = 0.72, HAND_Y = 0.08;
 
 // ---------- TARGET ----------
 const TARGET = {
-  x:1650, y:540, // movible
+  // La posición se pisa dinámicamente desde LEVELS[] al iniciar cada nivel.
+  x:1650, y:540,
   rings: [
     { r:55,  points:100, name:'BULL' },
     { r:95,  points:50,  name:'MID'  },
@@ -159,7 +232,7 @@ let hitFx = { active:false, x:0, y:0, t:0, dur:600 };
 let floatTexts = []; // {text,x,y,t,dur}
 
 // ---------- DEBUG ----------
-let DEBUG = false;
+let DEBUG = true;
 
 // ---------- INTRO ----------
 let hadThrownOnce = false;
@@ -178,11 +251,22 @@ let menu = { btn: { x:0, y:0, w:0, h:0, pressed:false } };
 
 // ---------- PRELOAD ----------
 function preload(){
-  // Escena
-  IMG_BG          = loadImage('LEVEL 1 - BACKGROUND.png');
-  IMG_MG          = loadImage('LEVEL 1 - MIDGROUND.png');
-  IMG_FG          = loadImage('LEVEL 1 - FOREGROUND.png');
+  // Escena Nivel 1 (se siguen usando, pero ahora además cargamos L2/L3)
+  IMG_MAP['LEVEL 1 - BACKGROUND.png'] = loadImage('LEVEL 1 - BACKGROUND.png');
+  IMG_MAP['LEVEL 1 - MIDGROUND.png']  = loadImage('LEVEL 1 - MIDGROUND.png');
+  IMG_MAP['LEVEL 1 - FOREGROUND.png'] = loadImage('LEVEL 1 - FOREGROUND.png');
 
+  // Escena Nivel 2
+  IMG_MAP['LEVEL 2 - BACKGROUND.png'] = loadImage('LEVEL 2 - BACKGROUND.png');
+  IMG_MAP['LEVEL 2 - MIDGROUND.png']  = loadImage('LEVEL 2 - MIDGROUND.png');
+  IMG_MAP['LEVEL 2 - FOREGROUND.png'] = loadImage('LEVEL 2 - FOREGROUND.png');
+
+  // Escena Nivel 3
+  IMG_MAP['LEVEL 3 - BACKGROUND.png'] = loadImage('LEVEL 3 - BACKGROUND.png');
+  IMG_MAP['LEVEL 3 - MIDGROUND.png']  = loadImage('LEVEL 3 - MIDGROUND.png');
+  IMG_MAP['LEVEL 3 - FOREGROUND.png'] = loadImage('LEVEL 3 - FOREGROUND.png');
+
+  // Sprites Bobby / HUD
   IMG_BOBBY_REST  = loadImage('BOBBY_REST.png');
   IMG_BOBBY_RISE  = loadImage('BOBBY_RISE.png');
   IMG_BOBBY_THROW = loadImage('BOBBY_THROW.png');
@@ -212,6 +296,11 @@ function preload(){
     SND_WIND           = loadSound('Wind.wav',          null, () => SND_WIND=null);
     SND_AMB_LVL1       = loadSound('AmbLevel1.wav',     null, () => SND_AMB_LVL1=null);
   }
+
+  // Asignar imágenes activas por defecto con el Nivel 1
+  IMG_BG = IMG_MAP['LEVEL 1 - BACKGROUND.png'];
+  IMG_MG = IMG_MAP['LEVEL 1 - MIDGROUND.png'];
+  IMG_FG = IMG_MAP['LEVEL 1 - FOREGROUND.png'];
 }
 
 // ---------- SETUP ----------
@@ -250,6 +339,9 @@ function goToMenu(){
 
   // Música principal ON en menú
   playMainMusic();
+
+  // Volver a empezar desde el Nivel 1 al salir al menú
+  currentLevelIndex = 0;
 }
 
 function renderMenu(){
@@ -271,7 +363,33 @@ function renderMenu(){
 }
 
 // ---------- LEVEL FLOW ----------
+function applyLevelConfig(idx){
+  const L = LEVELS[idx];
+
+  // Target por nivel
+  TARGET.x = L.target.x;
+  TARGET.y = L.target.y;
+
+  // Física por nivel
+  GRAVITY  = L.gravity;
+  WIND_POWER = L.windPower;
+  WIND_BIAS  = L.windBias;
+  WIND_AXE_GAIN = (typeof L.windGain === 'number') ? L.windGain : 1.0;
+
+  // Objetivos/tiempo por nivel
+  LEVEL_TIME_MS = Math.max(5, L.durationSec) * 1000;
+  LEVEL_GOAL    = L.scoreTarget;
+
+  // Fondos por nivel (mantiene orden BG -> MG -> Wind UI -> FG como en Nivel 1)
+  IMG_BG = IMG_MAP[L.bg.bg] || IMG_BG;
+  IMG_MG = IMG_MAP[L.bg.mg] || IMG_MG;
+  IMG_FG = IMG_MAP[L.bg.fg] || IMG_FG;
+}
+
 function startLevel(){
+  // Configurar a partir del nivel actual
+  applyLevelConfig(currentLevelIndex);
+
   levelStartAt = millis();
   levelEndReason = '';
   overlay = { active:false, t:0, dur:600 };
@@ -307,12 +425,14 @@ function endLevel(){
 }
 
 function goToNextScreen(){
-  // Mostrar pantalla "Next level — coming soon"
-  gameState = GAME.NEXT;
-
-  // (opcional) vuelve a encender la música principal en esta pantalla
-  // así no queda silencio después de LevelComplete
-  playMainMusic();
+  // Si hay un siguiente nivel, lo iniciamos. Si no, volvemos al menú.
+  if (currentLevelIndex < LEVELS.length - 1) {
+    currentLevelIndex++;
+    restartLevel();
+  } else {
+    // Último nivel completado -> menú o reinicio del último
+    goToMenu();
+  }
 }
 
 function restartLevel(){
@@ -430,6 +550,9 @@ function render(){
   }
 
   clear();
+
+  // Mantener el orden: BACKGROUND -> MIDGROUND -> (wind UI) -> FOREGROUND,
+  // tal como en el Nivel 1
   image(IMG_BG, 0, 0, canvasWidth, canvasHeight);
   image(IMG_MG, 0, 0, canvasWidth, canvasHeight);
 
@@ -556,11 +679,11 @@ function drawLevelEndOverlay(){
   const btnY = yEnd + panelH - 86;
 
   const rx = x + panelW/2 - bw - gap/2;
-  drawButton(rx, btnY, bw, bh, 'Restart');
+  drawButton(rx, btnY, bw, bh, (currentLevelIndex===0?'Restart':'Retry'));
   overlayButtons.restart = {x:rx, y:btnY, w:bw, h:bh};
 
   const nx = x + panelW/2 + gap/2;
-  drawButton(nx, btnY, bw, bh, 'Next');
+  drawButton(nx, btnY, bw, bh, (currentLevelIndex<LEVELS.length-1?'Next':'Menu'));
   overlayButtons.next = {x:nx, y:btnY, w:bw, h:bh};
 
   pop();
@@ -740,9 +863,9 @@ function spawnAxe(aimPoint = null){
   speedPF = constrain(speedPF, THROW_SPEED_MIN, THROW_SPEED_MAX);
   _lastThrowSpeed = speedPF;
 
-  // ¡Sin clamp hacia delante! Permite tiros hacia arriba/izquierda según cursor
+  // Sin clamp hacia delante: permite tiros hacia arriba si apuntas arriba
   axe.vx = ux * speedPF;
-  axe.vy = uy * speedPF; // si uy < 0 y el cursor está arriba de la mano, sale hacia arriba
+  axe.vy = uy * speedPF;
 
   axe.angle = Math.atan2(axe.vy, axe.vx);
 
@@ -760,12 +883,13 @@ function updateAxes(dt){
     if (!axe.stuck) {
       if (GRAVITY_ON) axe.vy += GRAVITY * (dt*60);
 
-     if (CHAOS_WIND_ON && WIND_ACTIVE) {
-  const raw  = fbm(noiseT, axe.y * WIND_SCALE_Y, 4) * 2 - 1; // [-1..1]
-  const bias = constrain(WIND_BIAS, -1, 1);                   // evita sesgo > 1
-  const wind = (raw + bias) * WIND_POWER;
-  axe.vx += wind * WIND_AXE_GAIN * (dt*60);
-}
+      // Viento con ráfagas + sesgo + potencia por nivel
+      if (CHAOS_WIND_ON && WIND_ACTIVE) {
+        const raw  = fbm(noiseT, axe.y * WIND_SCALE_Y, 4) * 2 - 1; // [-1..1]
+        const bias = constrain(WIND_BIAS, -1, 1);                   // sesgo acotado
+        const wind = (raw + bias) * WIND_POWER;
+        axe.vx += wind * WIND_AXE_GAIN * (dt*60);
+      }
 
       axe.x += axe.vx * (dt*60);
       axe.y += axe.vy * (dt*60);
@@ -939,7 +1063,7 @@ function endHold(){
   currentPose = POSE.THROW;
   lastThrowAt = now;
 
-  // Nuevo: el hacha apunta a donde esté el cursor al SOLTAR
+  // El hacha apunta a donde esté el cursor al SOLTAR (puede ir hacia arriba)
   const aimPoint = getPointer();
   spawnAxe(aimPoint);
 
@@ -965,4 +1089,3 @@ function hardReset(keepScore=false){
   currentPose = POSE.REST;
   if (!keepScore) score = 0;
 }
-
