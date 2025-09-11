@@ -232,7 +232,7 @@ let hitFx = { active:false, x:0, y:0, t:0, dur:600 };
 let floatTexts = []; // {text,x,y,t,dur}
 
 // ---------- DEBUG ----------
-let DEBUG = true;
+let DEBUG = false;
 
 // ---------- INTRO ----------
 let hadThrownOnce = false;
