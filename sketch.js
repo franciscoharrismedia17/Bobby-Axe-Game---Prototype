@@ -592,18 +592,85 @@ function updateOverlay(dt){
 
 // ---------- RENDER ----------
 function drawRotateHintIfNeeded(){
-  // bloquea en retrato (móviles); muestra hint
+  // Si está en vertical, mostramos overlay con texto responsive
   if (windowHeight > windowWidth) {
     clear();
+
+    // Fondo (opcional) para que no sea una pantalla negra
     if (IMG_BG) {
-      // de fondo, por estética
-      const v = getViewport();
-      image(IMG_BG, v.x, v.y, v.w, v.h);
+      const vbg = getViewport();
+      image(IMG_BG, vbg.x, vbg.y, vbg.w, vbg.h);
     }
-    noStroke(); fill(0,0,0,200); rect(0,0,width,height);
-    fill(255); textAlign(CENTER,CENTER);
-    textSize(32);
-    text("Rotate your device to landscape", width/2, height/2);
+
+    // Negro translúcido encima
+    noStroke(); fill(0, 0, 0, 220); rect(0, 0, width, height);
+
+    // Safe-areas (iOS notch / barras). Si no existen, dan 0.
+    let safeTop = 0, safeBottom = 0, safeLeft = 0, safeRight = 0;
+    if (window.visualViewport) {
+      // offsetTop/Left son el recorte actual; el resto es la barra opuesta
+      safeTop    = Math.max(0, Math.floor(window.visualViewport.offsetTop));
+      safeLeft   = Math.max(0, Math.floor(window.visualViewport.offsetLeft));
+      safeRight  = Math.max(0, Math.floor((window.innerWidth  - window.visualViewport.width)  - safeLeft));
+      safeBottom = Math.max(0, Math.floor((window.innerHeight - window.visualViewport.height) - safeTop));
+    }
+
+    // Margen base + safe-areas
+    const m = Math.max(16, Math.min(width, height) * 0.04);
+    const padX = m + Math.max(safeLeft,  0);
+    const padY = m + Math.max(safeTop,   0);
+    const padR = m + Math.max(safeRight, 0);
+    const padB = m + Math.max(safeBottom,0);
+
+    // Panel centrado
+    const panelX = padX;
+    const panelY = padY;
+    const panelW = Math.max(220, width  - padX - padR);
+    const panelH = Math.max(160, height - padY - padB);
+
+    // Cartel oscuro suave
+    fill(15, 14, 18, 235);
+    rect(panelX, panelY, panelW, panelH, 18);
+
+    // Mensajes
+    const title = "Rotate to landscape";
+    const body  = "Please rotate your phone.";
+
+    // Tipografías auto-ajustadas al ancho disponible
+    textAlign(CENTER, TOP);
+    fill(255);
+
+    // Título: usa una fracción del ancho, con límites
+    let titleSize = Math.min(48, Math.max(22, panelW * 0.08));
+    textSize(titleSize);
+    const titleY = panelY + Math.max(16, panelH * 0.10);
+    text(title, panelX + panelW/2, titleY);
+
+    // Cuerpo: word-wrap con ancho del panel y altura restante
+    const wrapW = panelW * 0.86;            // ancho para el texto (con margen interno)
+    const wrapX = panelX + (panelW - wrapW)/2;
+    const wrapY = titleY + titleSize + Math.max(8, panelH * 0.04);
+    const wrapH = panelY + panelH - wrapY - Math.max(16, panelH * 0.08);
+
+    fill(255, 235, 210);
+    // Calcula tamaño de fuente del cuerpo para que quepa sin overflow
+    let bodySize = Math.min(28, Math.max(14, panelW * 0.05));
+    textLeading(bodySize * 1.25);
+    textSize(bodySize);
+    // Si no cabe, reduce un poco hasta que entre
+    for (let i = 0; i < 6; i++) {
+      // p5 ajusta líneas cuando pasas maxWidth/maxHeight en text()
+      // Hacemos una estimación rápida reduciendo si el bloque es muy alto
+      // (no tenemos medida directa, así que usamos heurística de líneas)
+      // Para robustez, reducimos si wrapH es pequeño respecto al panel.
+      if (wrapH < bodySize * 2.2) bodySize *= 0.9;
+      textSize(bodySize);
+      textLeading(bodySize * 1.25);
+    }
+    text(body, wrapX, wrapY, wrapW, wrapH);
+
+    // (Opcional) icono o flecha de rotación se podría dibujar aquí
+
     return true;
   }
   return false;
