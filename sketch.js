@@ -1,8 +1,42 @@
 // ===== Bobby Axe - Full Sketch with Main Menu (v0.9) =====
-// ===== Mod con sistema de niveles (LEVELS[]) =====
+// ===== Mod con sistema de niveles (LEVELS[]) + MOBILE READY =====
 
-// ---------- CANVAS ----------
-let canvasWidth = 1920, canvasHeight = 1080;
+// ---------- CANVAS / BASE COORDS ----------
+let canvasWidth = 1920, canvasHeight = 1080; // base lógica
+const BASE_W = 1920, BASE_H = 1080;          // ¡no cambiar!
+
+// Viewport 16:9 escalado a pantalla (mantiene proporción, centra y escala todo)
+function getViewport() {
+  const s = Math.min(windowWidth / BASE_W, windowHeight / BASE_H);
+  const w = BASE_W * s, h = BASE_H * s;
+  const x = (windowWidth - w) / 2, y = (windowHeight - h) / 2;
+  return { x, y, w, h, s };
+}
+function beginViewport() {
+  const v = getViewport();
+  push();
+  translate(v.x, v.y);
+  scale(v.s, v.s);
+  return v;
+}
+function endViewport(){ pop(); }
+
+// Convierte coordenadas de pantalla (mouse/touch) a coordenadas del mundo (BASE_W x BASE_H)
+function screenToWorld(pt){
+  const v = getViewport();
+  return { x: (pt.x - v.x) / v.s, y: (pt.y - v.y) / v.s };
+}
+
+// ----- Fit a pantalla real (corrige iOS/Safari barras y rotación) -----
+function fitToScreenNow() {
+  let w = window.innerWidth;
+  let h = window.innerHeight;
+  if (window.visualViewport) {
+    w = Math.floor(window.visualViewport.width);
+    h = Math.floor(window.visualViewport.height);
+  }
+  resizeCanvas(w, h);
+}
 
 // ---------- ART (actuales/activos en el nivel cargado) ----------
 let IMG_BG, IMG_MG, IMG_FG;
@@ -42,8 +76,8 @@ function stopMainMusic() {
 // ---------- SPRITES RECORTADOS ----------
 let BOB_REST = null, BOB_RISE = null, BOB_THROW = null;
 
-// ---------- PLACEMENT ----------
-let groundY = canvasHeight - 150;
+// ---------- PLACEMENT (COORDS BASE) ----------
+let groundY = BASE_H - 150;
 let bobbyX = 250;
 let desiredBobbyHeight = 300;
 
@@ -62,41 +96,28 @@ let throwEndAt = 0; // ms hasta volver a REST tras THROW
 
 // ---- GESTURE (velocidad) ----
 const GESTURE_WINDOW_MS = 140; // ms
-const GESTURE_VPS_MIN   = 300; // px/s
+const GESTURE_VPS_MIN   = 300; // px/s (en coords base)
 const GESTURE_VPS_MAX   = 2600;
-const THROW_SPEED_MIN   = 18;  // px/frame
+const THROW_SPEED_MIN   = 18;  // px/frame (base)
 const THROW_SPEED_MAX   = 72;
-let _inputHist = [];           // {t,x,y}
+let _inputHist = [];           // {t,x,y} en coords base
 let _lastThrowSpeed = 34;
 
 // ---------- GAME STATE ----------
 const GAME = { MENU:'MENU', PLAY:'PLAY', LEVEL_END:'LEVEL_END', NEXT:'NEXT' };
 let gameState = GAME.MENU;
 
-// Nivel/Timer/Meta (estos se pisan por nivel desde LEVELS[])
+// Nivel/Timer/Meta
 let LEVEL_TIME_MS = 60000; // 60s
 let LEVEL_GOAL    = 300;
 let levelStartAt  = 0;
 let levelEndReason = '';
 
-// Sistema de niveles
-/* ===========================================================
-   LEVELS[] — Configuración por nivel
-   - Puedes ajustar por nivel:
-     target: { x, y }   // *Solo modifica Nivel 2 y Nivel 3* (Nivel 1 queda igual)
-     gravity            // gravedad para el cálculo de trayectoria
-     windPower          // intensidad del viento
-     windBias           // sesgo (- izq / + der)
-     windGain           // acople del viento al hacha (opcional)
-     bg: { bg, mg, fg } // nombres de archivos de fondo/mid/fore por nivel
-     durationSec        // tiempo límite
-     scoreTarget        // puntaje objetivo
-   =========================================================== */
+// Sistema de niveles (CONSERVA L1; puedes mover target en L2 y L3)
 const LEVELS = [
-  // NIVEL 1 — *Conservar exactamente la posición actual del target*
   {
     name: 'Level 1',
-    target: { x: 1650, y: 540 },     // <- NO CAMBIAR (mantiene el nivel 1 como está hoy)
+    target: { x: 1650, y: 540 },   // <- no tocar
     gravity: 0.45,
     windPower: 0.50,
     windBias: -0.80,
@@ -109,32 +130,28 @@ const LEVELS = [
     durationSec: 60,
     scoreTarget: 300
   },
-
-  // NIVEL 2 — Puedes ajustar target.x y target.y libremente
   {
     name: 'Level 2',
-    target: { x: 1650, y: 570 },     // <-- AJUSTA AQUÍ (independiente de Nivel 1)
-    gravity: 0.50,                   // un poco más de caída
-    windPower: 2.00,                 // viento algo más fuerte
-    windBias: -1.55,                 // menos sesgo a la izquierda
-    windGain: 1.00,                  // acople estándar
+    target: { x: 1650, y: 570 },   // ← ajustable por mapa
+    gravity: 0.50,
+    windPower: 2.00,
+    windBias: -1.55,
+    windGain: 1.00,
     bg: {
       bg: 'LEVEL 2 - BACKGROUND.png',
       mg: 'LEVEL 2 - MIDGROUND.png',
       fg: 'LEVEL 2 - FOREGROUND.png',
     },
-    durationSec: 55,                 // dificultad creciente
+    durationSec: 55,
     scoreTarget: 450
   },
-
-  // NIVEL 3 — También puedes ajustar target.x y target.y
   {
     name: 'Level 3',
-    target: { x: 1320, y: 630 },     // <-- AJUSTA AQUÍ (independiente de Nivel 1 y 2)
-    gravity: 0.56,                   // más desafiante
-    windPower: 2.55,                 // ráfagas más notorias
-    windBias: -3.25,                  // sesgo a la derecha
-    windGain: 1.10,                  // leve aumento de acople
+    target: { x: 1320, y: 630 },   // ← ajustable por mapa
+    gravity: 0.56,
+    windPower: 2.55,
+    windBias: -3.25,
+    windGain: 1.10,
     bg: {
       bg: 'LEVEL 3 - BACKGROUND.png',
       mg: 'LEVEL 3 - MIDGROUND.png',
@@ -144,7 +161,6 @@ const LEVELS = [
     scoreTarget: 600
   }
 ];
-
 let currentLevelIndex = 0; // comienza en Level 1
 
 // High Score
@@ -172,9 +188,9 @@ let noiseT = 0.0;
 
 // ---------- GRAVEDAD ----------
 let GRAVITY_ON = true;
-let GRAVITY    = 0.45; // px/frame^2
+let GRAVITY    = 0.45; // px/frame^2 (base)
 
-// ---------- VIENTO VISIBLE ----------
+// ---------- VIENTO VISIBLE (UI EN COORDS BASE) ----------
 let WIND_SPRITE_ON = true;
 let WIND_UI_X = 360, WIND_UI_Y = 120, WIND_UI_SCALE = 0.25;
 const WIND_ROT_MAX = 0.35;
@@ -202,8 +218,7 @@ let HAND_X = 0.72, HAND_Y = 0.08;
 
 // ---------- TARGET ----------
 const TARGET = {
-  // La posición se pisa dinámicamente desde LEVELS[] al iniciar cada nivel.
-  x:1650, y:540,
+  x:1650, y:540, // se pisa desde LEVELS
   rings: [
     { r:55,  points:100, name:'BULL' },
     { r:95,  points:50,  name:'MID'  },
@@ -251,7 +266,7 @@ let menu = { btn: { x:0, y:0, w:0, h:0, pressed:false } };
 
 // ---------- PRELOAD ----------
 function preload(){
-  // Escena Nivel 1 (se siguen usando, pero ahora además cargamos L2/L3)
+  // Escena Nivel 1
   IMG_MAP['LEVEL 1 - BACKGROUND.png'] = loadImage('LEVEL 1 - BACKGROUND.png');
   IMG_MAP['LEVEL 1 - MIDGROUND.png']  = loadImage('LEVEL 1 - MIDGROUND.png');
   IMG_MAP['LEVEL 1 - FOREGROUND.png'] = loadImage('LEVEL 1 - FOREGROUND.png');
@@ -284,7 +299,7 @@ function preload(){
   // Fuente
   if (SCORE_FONT_FILE) SCORE_FONT = loadFont(SCORE_FONT_FILE);
 
-  // Sonidos (con onError para no bloquear el preload si falta algo)
+  // Sonidos
   if (typeof loadSound === 'function') {
     SND_AXE_THROW      = loadSound('AxeThrow.mp3',      null, () => SND_AXE_THROW=null);
     SND_BUTTON         = loadSound('Button.wav',        null, () => SND_BUTTON=null);
@@ -305,7 +320,7 @@ function preload(){
 
 // ---------- SETUP ----------
 function setup(){
-  createCanvas(canvasWidth, canvasHeight);
+  createCanvas(windowWidth, windowHeight); // responsive base
   imageMode(CORNER);
   if (SCORE_FONT) textFont(SCORE_FONT);
 
@@ -320,22 +335,36 @@ function setup(){
 
   lastTime = millis();
 
+  // Ajuste inicial extra por si el navegador aún no estabilizó sizes
+  setTimeout(fitToScreenNow, 60);
+
+  // Listeners para rotación / barras en móvil
+  function onRotateFix(){
+    fitToScreenNow();
+    setTimeout(fitToScreenNow, 120);
+    setTimeout(fitToScreenNow, 400);
+    setTimeout(fitToScreenNow, 1000);
+  }
+  window.addEventListener('orientationchange', onRotateFix, { passive: true });
+  window.addEventListener('resize', fitToScreenNow, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitToScreenNow, { passive: true });
+  }
+
   // Entramos al menú
   goToMenu();
+}
+
+function windowResized(){
+  // Usar tamaño real aprovechando visualViewport si está disponible
+  fitToScreenNow();
 }
 
 // ---------- MAIN MENU ----------
 function goToMenu(){
   gameState = GAME.MENU;
-
-  // Colocar botón centrado abajo
-  const bw = IMG_BTN_START ? IMG_BTN_START.width : 420;
-  const bh = IMG_BTN_START ? IMG_BTN_START.height : 140;
-  menu.btn.w = bw;
-  menu.btn.h = bh;
-  menu.btn.x = width/2 - bw/2;
-  menu.btn.y = height - bh - 40;
-  menu.btn.pressed = false;
+  // El botón se calculará por frame en renderMenu() según el viewport
+  menu.btn = { x:0, y:0, w:0, h:0, pressed:false };
 
   // Música principal ON en menú
   playMainMusic();
@@ -346,19 +375,49 @@ function goToMenu(){
 
 function renderMenu(){
   clear();
-  if (IMG_COVER) {
-    imageMode(CORNER);
-    image(IMG_COVER, 0, 0, width, height);
-  } else {
-    background(10,9,14);
-  }
+  const v = getViewport();
 
-  const b = menu.btn;
-  const sprite = (b.pressed && IMG_BTN_START_PRESSED) ? IMG_BTN_START_PRESSED : IMG_BTN_START;
-  if (sprite) image(sprite, b.x, b.y, b.w, b.h);
-  else {
-    noStroke(); fill(150,40,20,230); rect(b.x, b.y, b.w, b.h, 16);
-    fill(255); textAlign(CENTER,CENTER); textSize(48); text('START', b.x+b.w/2, b.y+b.h/2);
+  if (IMG_COVER) image(IMG_COVER, v.x, v.y, v.w, v.h);
+  else background(10,9,14);
+
+  // ------ Botón Start grande (PC) y balanceado (móvil) ------
+  const baseW = IMG_BTN_START ? IMG_BTN_START.width  : 420;
+  const baseH = IMG_BTN_START ? IMG_BTN_START.height : 140;
+  const ar    = baseH / baseW; // alto/ancho
+
+  // Candidatos por ancho y por alto (ajustados por tu preferencia)
+  const bwByW = v.w * 0.40;   // 40% del ancho del viewport
+  const bhByH = v.h * 0.60;   // 60% del alto del viewport
+
+  // Convertir para respetar proporción
+  const bhFromW = bwByW * ar;
+  const bwFromH = bhByH / ar;
+
+  // Elegir el más grande visualmente
+  let bw = bwFromH, bh = bhByH;
+  if (bwByW > bwFromH) { bw = bwByW; bh = bhFromW; }
+
+  // Clamps para evitar extremos raros
+  const BW_MIN = 420;
+  const BH_MIN = 150;
+  const BW_MAX = Math.min(v.w * 0.70, 960);
+  bw = Math.max(BW_MIN, Math.min(bw, BW_MAX));
+  bh = Math.max(BH_MIN, bw * ar);
+
+  const bx = v.x + v.w/2 - bw/2;
+  const by = v.y + v.h - bh - Math.max(24, v.h * 0.04);
+
+  menu.btn.w = bw; menu.btn.h = bh;
+  menu.btn.x = bx; menu.btn.y = by;
+
+  const sprite = (menu.btn.pressed && IMG_BTN_START_PRESSED) ? IMG_BTN_START_PRESSED : IMG_BTN_START;
+  if (sprite) {
+    image(sprite, bx, by, bw, bh);
+  } else {
+    noStroke(); fill(150,40,20,230); rect(bx, by, bw, bh, 16);
+    fill(255); textAlign(CENTER,CENTER);
+    textSize(Math.max(32, Math.min(56, bh * 0.32)));
+    text('START', bx + bw/2, by + bh/2);
   }
 }
 
@@ -380,14 +439,13 @@ function applyLevelConfig(idx){
   LEVEL_TIME_MS = Math.max(5, L.durationSec) * 1000;
   LEVEL_GOAL    = L.scoreTarget;
 
-  // Fondos por nivel (mantiene orden BG -> MG -> Wind UI -> FG como en Nivel 1)
+  // Fondos por nivel
   IMG_BG = IMG_MAP[L.bg.bg] || IMG_BG;
   IMG_MG = IMG_MAP[L.bg.mg] || IMG_MG;
   IMG_FG = IMG_MAP[L.bg.fg] || IMG_FG;
 }
 
 function startLevel(){
-  // Configurar a partir del nivel actual
   applyLevelConfig(currentLevelIndex);
 
   levelStartAt = millis();
@@ -396,13 +454,11 @@ function startLevel(){
   gameState = GAME.PLAY;
   hardReset(true);
 
-  // asegurar música en niveles
   playMainMusic();
 
   hadThrownOnce = false;
   intro.active = true; intro.idx=0; intro.t=0;
 
-  // Ambiente del nivel (opcional)
   if (SND_AMB_LVL1) {
     if (SND_AMB_LVL1.setLoop) SND_AMB_LVL1.setLoop(true);
     if (!SND_AMB_LVL1.isPlaying || !SND_AMB_LVL1.isPlaying()) {
@@ -419,18 +475,15 @@ function endLevel(){
   gameState = GAME.LEVEL_END;
   overlay.active = true; overlay.t = 0;
 
-  // AUDIO: parar main music y sonar jingle
   stopMainMusic();
   if (SND_LEVEL_COMPLETE && SND_LEVEL_COMPLETE.play) SND_LEVEL_COMPLETE.play();
 }
 
 function goToNextScreen(){
-  // Si hay un siguiente nivel, lo iniciamos. Si no, volvemos al menú.
   if (currentLevelIndex < LEVELS.length - 1) {
     currentLevelIndex++;
     restartLevel();
   } else {
-    // Último nivel completado -> menú o reinicio del último
     goToMenu();
   }
 }
@@ -538,6 +591,24 @@ function updateOverlay(dt){
 }
 
 // ---------- RENDER ----------
+function drawRotateHintIfNeeded(){
+  // bloquea en retrato (móviles); muestra hint
+  if (windowHeight > windowWidth) {
+    clear();
+    if (IMG_BG) {
+      // de fondo, por estética
+      const v = getViewport();
+      image(IMG_BG, v.x, v.y, v.w, v.h);
+    }
+    noStroke(); fill(0,0,0,200); rect(0,0,width,height);
+    fill(255); textAlign(CENTER,CENTER);
+    textSize(32);
+    text("Rotate your device to landscape", width/2, height/2);
+    return true;
+  }
+  return false;
+}
+
 function render(){
   if (gameState === GAME.MENU) {
     renderMenu();
@@ -549,16 +620,20 @@ function render(){
     return;
   }
 
+  if (drawRotateHintIfNeeded()) return;
+
   clear();
 
-  // Mantener el orden: BACKGROUND -> MIDGROUND -> (wind UI) -> FOREGROUND,
-  // tal como en el Nivel 1
-  image(IMG_BG, 0, 0, canvasWidth, canvasHeight);
-  image(IMG_MG, 0, 0, canvasWidth, canvasHeight);
+  // === Todo se dibuja en coords base dentro del viewport ===
+  beginViewport();
+
+  // Orden: BG -> MG -> (wind UI) -> FG
+  image(IMG_BG, 0, 0, BASE_W, BASE_H);
+  image(IMG_MG, 0, 0, BASE_W, BASE_H);
 
   drawWindSpriteSmall();
 
-  image(IMG_FG, 0, 0, canvasWidth, canvasHeight);
+  image(IMG_FG, 0, 0, BASE_W, BASE_H);
 
   drawAxes();
 
@@ -581,13 +656,15 @@ function render(){
   }
 
   if (gameState === GAME.LEVEL_END) drawLevelEndOverlay();
+
+  endViewport();
 }
 
 function drawWindSpriteSmall(){
   if (!WIND_SPRITE_ON || !IMG_WIND) return;
   if (WIND_VIS_T <= 0.001) return;
 
-  const ang = constrain(WIND_BIAS, -1, 1) * WIND_ROT_MAX;
+  const ang = constrain(WIND_BIAS, -1, 1) * WIND_ROT_MAX; // solo UI recortada
   const eased = easeInOutCubic(constrain(WIND_VIS_T, 0, 1));
 
   const baseAlpha = 180;
@@ -606,7 +683,7 @@ function drawWindSpriteSmall(){
 }
 
 function drawHUD(){
-  // Scoreboard
+  // Scoreboard (coords base)
   push();
   const sbW = IMG_SCORE.width * SCORE_SCALE;
   const sbH = IMG_SCORE.height * SCORE_SCALE;
@@ -626,13 +703,13 @@ function drawHUD(){
   text(scoreStr, SCORE_TEXT_X, SCORE_TEXT_Y);
   pop();
 
-  // Timer Panel
+  // Timer Panel (coords base)
   const remain = Math.max(0, LEVEL_TIME_MS - (millis() - levelStartAt));
   const secs = Math.ceil(remain/1000);
   const tStr = secs.toString().padStart(2,'0');
 
   const panelW = 150, panelH = 80;
-  const px = width - panelW - 24;
+  const px = BASE_W - panelW - 24;
   const py = 22;
 
   noStroke(); fill(18,16,24, 200);
@@ -648,15 +725,16 @@ function drawHUD(){
 }
 
 function drawLevelEndOverlay(){
+  // Dibuja overlay en coords base (dentro del viewport)
   const p = overlay.t/overlay.dur;
   const ease = easeOutCubic(p);
   const panelW = 640, panelH = 340;
-  const x = width/2 - panelW/2;
+  const x = BASE_W/2 - panelW/2;
   const yStart = -panelH - 40;
-  const yEnd = height/2 - panelH/2;
+  const yEnd = BASE_H/2 - panelH/2;
   const y = lerp(yStart, yEnd, ease);
 
-  noStroke(); fill(0, 0, 0, 140 * ease); rect(0,0,width,height);
+  noStroke(); fill(0, 0, 0, 140 * ease); rect(0,0,BASE_W,BASE_H);
 
   push();
   translate(0, y - yEnd);
@@ -690,7 +768,7 @@ function drawLevelEndOverlay(){
 }
 
 function drawButton(x,y,w,h,label){
-  const hover = mouseX>=x && mouseX<=x+w && mouseY>=y && mouseY<=y+h;
+  const hover = false;
   const c = hover ? 255 : 235;
   noStroke(); fill(60,60,70, 240); rect(x,y,w,h,10);
   fill(c);
@@ -725,9 +803,9 @@ function drawIntro(){
   fill(0, 0, 0, alpha*0.6);
   noStroke();
   textSize(cur.size);
-  text(cur.text, width/2 + 2, height/2 + 2 + introOffsetY);
+  text(cur.text, BASE_W/2 + 2, BASE_H/2 + 2 + introOffsetY);
   fill(255, 235, 210, alpha);
-  text(cur.text, width/2, height/2 + introOffsetY);
+  text(cur.text, BASE_W/2, BASE_H/2 + introOffsetY);
   pop();
 }
 
@@ -741,13 +819,14 @@ function inputDelta() {
   return { dx: mouseX - pmouseX, dy: mouseY - pmouseY };
 }
 
-function getPointer(){
+function getPointerScreen(){
   if (touches && touches.length > 0) return {x: touches[0].x, y: touches[0].y};
   return {x: mouseX, y: mouseY};
 }
 
 function recordInputSample(now){
-  const p = getPointer();
+  const pScr = getPointerScreen();
+  const p = screenToWorld(pScr);
   _inputHist.push({t: now, x: p.x, y: p.y});
   const cutoff = now - Math.max(GESTURE_WINDOW_MS, 60);
   while (_inputHist.length > 1 && _inputHist[0].t < cutoff) _inputHist.shift();
@@ -830,20 +909,19 @@ function mapRange(v, a0, a1, b0, b1){
   return b0 + (b1 - b0) * constrain(t, 0, 1);
 }
 
-function spawnAxe(aimPoint = null){
+function spawnAxe(aimPointBase = null){
   const hand = getHandPos();
   const axe = newAxe();
   axe.x = hand.x; axe.y = hand.y;
 
-  // Dirección: al cursor si se aportó aimPoint; si no, al TARGET como fallback
-  let tx = (aimPoint && typeof aimPoint.x === 'number') ? aimPoint.x : TARGET.x;
-  let ty = (aimPoint && typeof aimPoint.y === 'number') ? aimPoint.y : TARGET.y;
+  // aimPointBase está ya en coords base
+  let tx = (aimPointBase && typeof aimPointBase.x === 'number') ? aimPointBase.x : TARGET.x;
+  let ty = (aimPointBase && typeof aimPointBase.y === 'number') ? aimPointBase.y : TARGET.y;
 
   let dirX = tx - hand.x;
   let dirY = ty - hand.y;
   let len  = Math.hypot(dirX, dirY);
 
-  // Evitar vector casi nulo: usa el último delta de gesto como respaldo
   if (len < 1e-3) {
     const first = _inputHist[0], last = _inputHist[_inputHist.length - 1];
     if (first && last) {
@@ -851,19 +929,18 @@ function spawnAxe(aimPoint = null){
       dirY = last.y - first.y;
       len  = Math.hypot(dirX, dirY);
     }
-    if (len < 1e-3) { dirX = 1; dirY = 0; len = 1; } // fallback duro
+    if (len < 1e-3) { dirX = 1; dirY = 0; len = 1; }
   }
 
   const ux = dirX / len;
   const uy = dirY / len;
 
-  // Potencia por gesto (igual que antes)
+  // Potencia por gesto (ya en coords base)
   const vps = gestureSpeed(millis());
   let speedPF = mapRange(vps, GESTURE_VPS_MIN, GESTURE_VPS_MAX, THROW_SPEED_MIN, THROW_SPEED_MAX);
   speedPF = constrain(speedPF, THROW_SPEED_MIN, THROW_SPEED_MAX);
   _lastThrowSpeed = speedPF;
 
-  // Sin clamp hacia delante: permite tiros hacia arriba si apuntas arriba
   axe.vx = ux * speedPF;
   axe.vy = uy * speedPF;
 
@@ -886,8 +963,8 @@ function updateAxes(dt){
       // Viento con ráfagas + sesgo + potencia por nivel
       if (CHAOS_WIND_ON && WIND_ACTIVE) {
         const raw  = fbm(noiseT, axe.y * WIND_SCALE_Y, 4) * 2 - 1; // [-1..1]
-        const bias = constrain(WIND_BIAS, -1, 1);                   // sesgo acotado
-        const wind = (raw + bias) * WIND_POWER;
+        // Física: sesgo completo (sin recortar), UI se recorta aparte
+        const wind = (raw + WIND_BIAS) * WIND_POWER;
         axe.vx += wind * WIND_AXE_GAIN * (dt*60);
       }
 
@@ -908,7 +985,7 @@ function updateAxes(dt){
         hitFx = { active:true, x:TARGET.x, y:TARGET.y, t:0, dur:600 };
       }
 
-      if (axe.x < -120 || axe.x > width+120 || axe.y < -120 || axe.y > height+120) {
+      if (axe.x < -120 || axe.x > BASE_W+120 || axe.y < -120 || axe.y > BASE_H+120) {
         axe.active = false;
         const pen = Math.min(10, score);
         score = constrain(score - pen, SCORE_MIN, SCORE_MAX);
@@ -987,7 +1064,7 @@ function mousePressed(){
 
   // --- LEVEL_END OVERLAY ---
   if (gameState === GAME.LEVEL_END){
-    const m = {x:mouseX, y:mouseY};
+    const m = screenToWorld({x:mouseX, y:mouseY});
     const hit = (b)=> m.x>=b.x && m.x<=b.x+b.w && m.y>=b.y && m.y<=b.y+b.h;
     if (hit(overlayButtons.next))    { if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play(); goToNextScreen(); return; }
     if (hit(overlayButtons.restart)) { if (SND_BUTTON && SND_BUTTON.play) SND_BUTTON.play(); restartLevel();    return; }
@@ -1040,6 +1117,7 @@ function touchEnded(){
 }
 
 function beginHold(){
+  if (windowHeight > windowWidth) return; // pide rotar, ignora taps
   if (gameState !== GAME.PLAY) return;
   isHolding = true;
   currentPose = POSE.RISE;
@@ -1064,8 +1142,9 @@ function endHold(){
   lastThrowAt = now;
 
   // El hacha apunta a donde esté el cursor al SOLTAR (puede ir hacia arriba)
-  const aimPoint = getPointer();
-  spawnAxe(aimPoint);
+  const aimScreen = getPointerScreen();
+  const aimPointBase = screenToWorld(aimScreen);
+  spawnAxe(aimPointBase);
 
   throwEndAt = now + THROW_HOLD_MS;
 
@@ -1074,11 +1153,15 @@ function endHold(){
 
 function renderNextScreen(){
   clear();
-  background(10,9,14);
+  const v = getViewport();
+  noStroke(); fill(10,9,14); rect(v.x, v.y, v.w, v.h);
+  push();
+  translate(v.x, v.y); scale(v.s, v.s);
   noStroke(); fill(255);
   textAlign(CENTER, CENTER);
-  textSize(44); text('Next level — coming soon', width/2, height/2 - 20);
-  textSize(20); fill(220); text('Press R to restart current level', width/2, height/2 + 30);
+  textSize(44); text('Next level — coming soon', BASE_W/2, BASE_H/2 - 20);
+  textSize(20); fill(220); text('Press R to restart current level', BASE_W/2, BASE_H/2 + 30);
+  pop();
 }
 
 function hardReset(keepScore=false){
