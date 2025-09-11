@@ -92,7 +92,7 @@ const MAX_DT = 1/30;
 let CHAOS_WIND_ON = true;
 let WIND_POWER    = 2.00;
 let WIND_AXE_GAIN = 1.00;
-let WIND_BIAS     = -0.30;
+let WIND_BIAS     = -0.80;
 
 let WIND_SCALE_T = 0.005;
 let WIND_SCALE_Y = 0.002;
