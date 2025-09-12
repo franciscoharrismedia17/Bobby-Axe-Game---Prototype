@@ -260,9 +260,168 @@ let intro = {
   ]
 };
 let introOffsetY = -430;
+// ---------- TUTORIAL OVERLAY (cursor/dedo animado) ----------
+let tutorial = {
+  active: false,
+  t: 0,              // tiempo acumulado (ms)
+  phase: 0,          // 0=press/hold, 1=swipe, 2=loop pause
+  loopMs: 2400,      // duración total de la anim (aprox)
+  showTapToStart: false,
+  from: {x: 0, y: 0},
+  to:   {x: 0, y: 0},
 
+  start() {
+    // Punto inicial: la mano de Bobby (donde se agarra el hacha)
+    const hand = getHandPos();
+    this.from.x = hand.x + 10;
+    this.from.y = hand.y + 6;
+
+    // Punto final: centro del blanco actual (TARGET)
+    this.to.x = TARGET.x;
+    this.to.y = TARGET.y;
+
+    this.t = 0;
+    this.phase = 0;
+    this.showTapToStart = false;
+    this.active = true;
+  }
+};
+
+function updateTutorial(dt){
+  if (!tutorial.active) return;
+  tutorial.t += dt * 1000;
+
+  const holdMs  = 900;   // tiempo de “mantener presionado”
+  const swipeMs = 700;   // tiempo del trazo rápido
+  const gapMs   = 500;   // pausa antes de repetir
+
+  const tt = tutorial.t % tutorial.loopMs;
+
+  if (tt < holdMs) {
+    tutorial.phase = 0; // HOLD
+  } else if (tt < holdMs + swipeMs) {
+    tutorial.phase = 1; // SWIPE
+  } else {
+    tutorial.phase = 2; // PAUSA
+  }
+
+  // Después de ~1.5 loops, invitamos a tocar para iniciar
+  if (tutorial.t > 1.5 * tutorial.loopMs) tutorial.showTapToStart = true;
+}
+
+function drawTutorial(){
+  if (!tutorial.active) return;
+
+  // oscurecer fondo un poco
+  noStroke(); fill(0,0,0,160); rect(0,0,BASE_W,BASE_H);
+
+  // Panel central con texto (auto-ajustado)
+  const panelW = 820, panelH = 150;
+  const px = BASE_W/2 - panelW/2;
+  const py = BASE_H*0.18;
+  fill(15,14,18,235); rect(px, py, panelW, panelH, 18);
+
+  // Texto claro y grande
+  fill(255); textAlign(CENTER, TOP);
+  textSize(42); text("HOLD TO GRAB THE AXE", BASE_W/2, py+26);
+  fill(255,235,210);
+  textSize(30); text("FASTER SWIPE = STRONGER THROW", BASE_W/2, py+26+56);
+
+  // Área de animación (debajo del texto)
+  const ax = BASE_W/2, ay = py + panelH + 24;
+
+  // Dibujar trayectoria guía (curva leve hacia el target)
+  const p0 = { x: tutorial.from.x, y: tutorial.from.y };
+  const p3 = { x: tutorial.to.x,   y: tutorial.to.y   };
+  // Control points para curva bezier (suave)
+  const dx = (p3.x - p0.x), dy = (p3.y - p0.y);
+  const p1 = { x: p0.x + dx*0.25, y: p0.y + dy*0.10 - 40 };
+  const p2 = { x: p0.x + dx*0.65, y: p0.y + dy*0.05 - 30 };
+
+  // Línea guía tenue
+  stroke(255,255,255,40); strokeWeight(6); noFill();
+  bezier(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+
+  // Cursor/dedo
+  const cur = getCursorAnimPos(p0,p1,p2,p3);
+
+  // Efecto "press": ondas cuando phase=0
+  if (tutorial.phase === 0){
+    const p = (tutorial.t % 900) / 900;
+    noFill();
+    stroke(255, 255, 255, 140*(1-p));
+    strokeWeight(3);
+    circle(p0.x, p0.y, 26 + 24*p);
+  }
+
+  // Dibujar cursor (mouse) o dedo simple
+  drawPointer(cur.x, cur.y, tutorial.phase);
+
+  // Texto “Tap to start” cuando ya mostró el gesto un rato
+  if (tutorial.showTapToStart){
+    noStroke(); fill(255);
+    textSize(26);
+    textAlign(CENTER, BOTTOM);
+    text("Tap anywhere to start", BASE_W/2, BASE_H - 46);
+  }
+}
+
+// devuelve el punto animado sobre la curva
+function getCursorAnimPos(p0,p1,p2,p3){
+  const holdMs  = 900, swipeMs = 700;
+  const tt = tutorial.t % tutorial.loopMs;
+
+  if (tutorial.phase === 0){ // HOLD: queda quieto
+    return { x: p0.x, y: p0.y };
+  } else if (tutorial.phase === 1){ // SWIPE: avanza rápido (ease-out)
+    let q = (tt - holdMs) / swipeMs;
+    q = constrain(q, 0, 1);
+    const t = 1 - Math.pow(1-q, 2.2); // ease-out
+    const x = bezierPoint(p0.x,p1.x,p2.x,p3.x, t);
+    const y = bezierPoint(p0.y,p1.y,p2.y,p3.y, t);
+    return { x, y };
+  } else { // PAUSE al final, cursor se queda en el target
+    return { x: p3.x, y: p3.y };
+  }
+}
+
+// dibujo simple de cursor/dedo
+function drawPointer(x,y,phase){
+  push();
+  translate(x,y);
+  // sombra
+  noStroke(); fill(0,0,0,80); circle(6,8,18);
+
+  // si preferís "dedo", descomenta este bloque y comenta el triángulo
+  /*
+  // dedo redondeado + uña
+  fill(255,240,225);
+  circle(0,0,22);
+  fill(250,220,205);
+  arc(0,0,22,22, PI+0.4, TWO_PI-0.4, OPEN);
+  */
+
+  // mouse pointer (triángulo)
+  noStroke();
+  fill(255);
+  triangle(0,0, 24,10, 8,24);
+  stroke(0,0,0,120); strokeWeight(1.5);
+  noFill();
+  triangle(0,0, 24,10, 8,24);
+
+  // speed lines durante el swipe
+  if (phase === 1){
+    stroke(255,255,255,120); strokeWeight(3);
+    line(-24, -4, -4, -2);
+    line(-22,  6, -6,  4);
+  }
+  pop();
+  if (tutorial.t > 10000) tutorial.active = false;
+  
+}
 // ---------- MAIN MENU UI ----------
 let menu = { btn: { x:0, y:0, w:0, h:0, pressed:false } };
+
 
 // ---------- PRELOAD ----------
 function preload(){
@@ -457,8 +616,10 @@ function startLevel(){
   playMainMusic();
 
   hadThrownOnce = false;
-  intro.active = true; intro.idx=0; intro.t=0;
-
+  intro.active = false; intro.idx=0; intro.t=0;
+    // Iniciar tutorial con gesto animado
+  tutorial.start();
+  
   if (SND_AMB_LVL1) {
     if (SND_AMB_LVL1.setLoop) SND_AMB_LVL1.setLoop(true);
     if (!SND_AMB_LVL1.isPlaying || !SND_AMB_LVL1.isPlaying()) {
@@ -510,6 +671,8 @@ function draw(){
 
 // ---------- UPDATE ----------
 function update(dt){
+  updateTutorial(dt);
+
   recordInputSample(millis());
 
   const now = millis();
@@ -714,6 +877,7 @@ function render(){
   drawFloatTexts();
 
   drawIntro();
+   if (tutorial.active) drawTutorial();
 
   if (DEBUG) {
     const hand = getHandPos();
@@ -1122,6 +1286,8 @@ function keyPressed(){
 }
 
 function mousePressed(){
+  // Cerrar tutorial con click
+if (tutorial.active) { tutorial.active = false; return; }
   // --- MENU ---
   if (gameState === GAME.MENU){
     const b = menu.btn;
@@ -1156,6 +1322,8 @@ function mouseReleased(){
 
 // Touch wrappers
 function touchStarted(){
+  // Cerrar tutorial con tap
+if (tutorial.active) { tutorial.active = false; return false; }
    if (gameState === GAME.MENU){
     const b = menu.btn;
     if (touches.length){
